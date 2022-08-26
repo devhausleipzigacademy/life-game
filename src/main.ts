@@ -1,12 +1,13 @@
-
+import _ from "lodash";
+import {} from "./utils";
 
 ///////////////////////////////
 //// Initialize Game State ////
 ///////////////////////////////
 
-const root = document.documentElement;
-const gameGrid = document.querySelector('.game-grid')
-const messages = document.querySelector('#messages')
+const root = document.documentElement as HTMLElement;
+const gameGrid = document.querySelector('.game-grid') as HTMLElement;
+const messages = document.querySelector('#messages') as HTMLElement;
 
 const defaultDelay = 100; // ms
 let delay = defaultDelay;
@@ -19,7 +20,7 @@ let frozen = false;
 messages.innerHTML = "<h4>Click start to evolve the universe</h3>"
 
 
-const adjacencySelect = document.querySelector('#options-adjacency > select')
+const adjacencySelect = document.querySelector('#options-adjacency > select') 
 const adjacencyLinearBlock = document.querySelector('#linear-adjacency')
 const adjacencyNonLinearBlock = document.querySelector('#non-linear-adjacency')
 
