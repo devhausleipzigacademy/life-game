@@ -3,23 +3,43 @@
 ///////////////////////////////////////
 
 export function querySelector(selector: string) {
-    return document.querySelector(selector) as Element;
+    return document.querySelector(selector) as HTMLElement;
 }
 
 export function querySelectorAll(selector: string) {
-    return document.querySelectorAll(selector) as NodeListOf<Element>;
+    return document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
+}
+
+export function getRoot() {
+    return document.documentElement as HTMLElement;
+}
+
+export function setCSSVar(CSSVar: string, value: string | number) {
+    const root = getRoot();
+    root.style.setProperty(CSSVar, String(value));
+}
+
+export function getCSSVar(CSSVar: string) {
+    const root = getRoot();
+    getComputedStyle(root).getPropertyValue(CSSVar);
 }
 
 export function toggleClass(element: Element, styleClass: string) {
     element.classList.toggle(styleClass);
 }
 
+export function removeChildren(element: Element) {
+    while (element.lastElementChild) {
+        element.removeChild(element.lastElementChild);
+    }
+}
+
 /////////////////////////////////////////
 //// Maths-related Utilities & Types ////
 /////////////////////////////////////////
 
-type Bound = [number, number];
-type Vec2 = [number, number];
+export type Bound = [number, number];
+export type Vec2 = [number, number];
 
 export function mod(dividend: number, divisor: number) {
     return ((dividend % divisor) + divisor) % divisor;
@@ -47,30 +67,24 @@ export function randVec2(xBounds: Bound, yBounds: Bound): Vec2 {
 //// Spatial-related Utilities & Types ////
 ///////////////////////////////////////////
 
-type Coordinate2D = [number, number];
-type Coordinate3D = [number, number, number];
+export type Coordinate2D = [number, number];
+export type Coordinate3D = [number, number, number];
 
-function coord2ToId(coordinate: Coordinate2D) {
-    return coordinate.join("-");
+export function coordToId<T extends Coordinate2D | Coordinate3D>(
+    coordinate: T
+) {
+    return "__" + coordinate.join("_");
 }
 
-function idToCoord2(id: string) {
-    return id.split("-").map(Number) as Coordinate2D;
+export function idToCoord<T extends Coordinate2D | Coordinate3D>(id: string) {
+    return id.replace("__", "").split("_").map(Number) as T;
 }
 
-function coord3ToId(coordinate: Coordinate3D) {
-    return coordinate.join("-");
-}
-
-function idToCoord3(id: string) {
-    return id.split("-").map(Number) as Coordinate3D;
-}
-
-type Entity2D = {
+export type Entity2D = {
     position: Coordinate2D;
 };
 
-type Entity3D = {
+export type Entity3D = {
     position: Coordinate3D;
 };
 
@@ -78,51 +92,4 @@ type Entity3D = {
 //// Logic-related Utilities & Types ////
 /////////////////////////////////////////
 
-type ImpurePredicate<T> = (...args: Array<T>) => boolean;
-
-class Predicate<T> {
-    static eval<T>(predicate: Predicate<T>, values: Array<any>) {
-        return predicate.atoms.reduce((accum, atom) => {
-            return accum;
-        });
-    }
-
-    atoms: Array<boolean | Predicate<T> | ImpurePredicate<T>>;
-
-    constructor(...atoms: Array<boolean | Predicate<T> | ImpurePredicate<T>>) {
-        this.atoms = atoms;
-    }
-
-    and(
-        ...atoms: Array<boolean | Predicate<T> | ImpurePredicate<T>>
-    ): ImpurePredicate<T> {
-        return (...values: Array<any>) => {
-            let output = false;
-            for (const atom of atoms) {
-                if (atom instanceof Predicate) {
-                    output = output && Predicate.eval(atom, values);
-                } else if (typeof atom === "boolean") {
-                    output = output && atom;
-                } else {
-                    output = output && atom(...values);
-                }
-            }
-
-            return output;
-        };
-    }
-
-    or() {}
-}
-
-function not<T>(
-    atom: boolean | Predicate<T> | ImpurePredicate<T>
-): ImpurePredicate<T> {
-    if (atom instanceof Predicate) {
-        return () => !Predicate.eval(atom);
-    } else if (typeof atom === "boolean") {
-        return () => !atom;
-    } else {
-        return (...values: Array<any>) => !atom(...values);
-    }
-}
+export type Predicate<T> = (...args: Array<T>) => boolean;

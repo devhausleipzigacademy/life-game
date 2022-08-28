@@ -1,309 +1,341 @@
 import _ from "lodash";
-import {} from "./utils";
+import {
+    querySelector,
+    coordToId,
+    setCSSVar,
+    toggleClass,
+    Coordinate2D,
+    idToCoord,
+    removeChildren,
+} from "./utils";
 
 ///////////////////////////////
 //// Initialize Game State ////
 ///////////////////////////////
 
-const root = document.documentElement as HTMLElement;
-const gameGrid = document.querySelector('.game-grid') as HTMLElement;
-const messages = document.querySelector('#messages') as HTMLElement;
+const defaultGameParams = {
+    delay: 100, // ms
+    rows: 23,
+    cols: 27,
+    gridSquareSize: 20, // px
+    hoodRadius: 1,
+};
 
-const defaultDelay = 100; // ms
-let delay = defaultDelay;
+type GameParams = typeof defaultGameParams;
 
-const defaultState = ['xy4_3', 'xy4_5', 'xy4_7', 'xy4_4','xy8_3', 'xy5_5', 'xy5_7', 'xy6_4', 'xy6_6', 'xy7_5', 'xy7_6', 'xy8_6', 'xy8_8'];
+const gameParams: GameParams = _.cloneDeep(defaultGameParams);
 
-let liveCells = {};
-let frozen = false;
+const messages = querySelector("#messages");
+messages.innerHTML = "<h4>Click start to evolve the universe</h3>";
 
-messages.innerHTML = "<h4>Click start to evolve the universe</h3>"
+const gameGrid = querySelector("#game-grid");
 
+const optionsHoodRadius = querySelector(
+    "#options-hood-radius > input"
+) as HTMLInputElement;
 
-const adjacencySelect = document.querySelector('#options-adjacency > select') 
-const adjacencyLinearBlock = document.querySelector('#linear-adjacency')
-const adjacencyNonLinearBlock = document.querySelector('#non-linear-adjacency')
+optionsHoodRadius.max = String(20);
+optionsHoodRadius.min = String(1);
+optionsHoodRadius.value = String(gameParams.hoodRadius);
 
-if(adjacencySelect.value == "linear"){
-    adjacencyNonLinearBlock.classList.toggle('hide')
+const adjacencySelect = querySelector(
+    "#options-adjacency > select"
+) as HTMLSelectElement;
+
+const adjacencyLinearBlock = querySelector("#linear-adjacency");
+const adjacencyNonLinearBlock = querySelector("#non-linear-adjacency");
+
+if (adjacencySelect.value == "linear") {
+    adjacencyNonLinearBlock.classList.toggle("hide");
 } else {
-    adjacencyLinearBlock.classList.toggle('hide')
+    adjacencyLinearBlock.classList.toggle("hide");
 }
 
-adjacencySelect.addEventListener('input', (event) => {
-    adjacencyNonLinearBlock.classList.toggle('hide')
-    adjacencyLinearBlock.classList.toggle('hide')
-})
+adjacencySelect.addEventListener("input", () => {
+    adjacencyNonLinearBlock.classList.toggle("hide");
+    adjacencyLinearBlock.classList.toggle("hide");
+});
 
-
-const optionsGridSize = document.querySelector("#options-grid-size > input")
-optionsGridSize.addEventListener('input', (event) => {
-        optionsGridSize.value = Math.max(11, Math.min(101, optionsGridSize.value));
-})
-
-const optionsHoodRadius = document.querySelector("#options-hood-radius > input")
-optionsHoodRadius.addEventListener('input', (event) => {
-    optionsHoodRadius.value = Math.max(1, Math.min(20, optionsHoodRadius.value));
-})
+const gameState = {
+    liveCells: new Set() as Set<string>,
+    frozen: false,
+    done: true,
+};
 
 function generateGridCells() {
-    gameGrid.style.gridTemplateRows = `repeat(${optionsGridSize.value}, 1fr)`
-    gameGrid.style.gridTemplateColumns = `repeat(${optionsGridSize.value}, 1fr)`
+    setCSSVar("--grid-square-size", gameParams.gridSquareSize);
 
-    for (let i = 0; i < optionsGridSize.value; i++) {
-        for (let j = 0; j < optionsGridSize.value; j++) {
-            const gridSquare = document.createElement('div');
-            gridSquare.id = `xy${i}_${j}`
-            gridSquare.classList.add('grid-square')
-            gridSquare.style.width = `${600/optionsGridSize.value}px`
-            gridSquare.style.height = `${600/optionsGridSize.value}px`
-            gridSquare.style.border = `${2/(8* (optionsGridSize.value - 3) + 1)}px solid #D3219B`
-            
-            gameGrid.appendChild(gridSquare)
+    gameParams.rows = Math.floor(
+        (window.innerHeight * 0.9) / gameParams.gridSquareSize
+    );
+    gameParams.cols = Math.floor(window.innerWidth / gameParams.gridSquareSize);
+
+    setCSSVar("--rows", gameParams.rows);
+    setCSSVar("--cols", gameParams.cols);
+
+    for (let j = gameParams.rows - 1; j >= 0; j--) {
+        for (let i = 0; i < gameParams.cols; i++) {
+            const gridSquare = document.createElement("div");
+            gridSquare.id = coordToId([i, j]);
+            gridSquare.classList.add("grid-square");
+            gameGrid.appendChild(gridSquare);
         }
     }
+
+    const defaultLiveCells = [
+        [4, 5],
+        [5, 5],
+        [6, 4],
+        [6, 6],
+        [7, 5],
+        [8, 5],
+    ] as Array<Coordinate2D>;
+
+    // create default live cells
+    defaultLiveCells.forEach((coord) => {
+        const id = coordToId(coord);
+        gameState.liveCells.add(id);
+        const square = querySelector(`#${id}`);
+        toggleClass(square, "live-cell");
+    });
 }
 
-generateGridCells()
-
-// create default live cells
-defaultState.forEach( (id) => {
-    liveCells[id] = {
-        'id': id
-    }
-    const square = document.querySelector(`#${id}`);
-    styleSquare(square, 'live-cell')
-})
-
+generateGridCells();
 
 ///////////////////////////
 //// State Transitions ////
 ///////////////////////////
 
-function filterInvalid(coordinate) {
-    if(coordinate.length !== 2){
-        throw Error(`Check yo self: ${coordinate}`)
-    }
-    const [row, column] = coordinate;
-    return  (row < 0 || row > optionsGridSize.value-1 || column < 0 || column > optionsGridSize.value-1)
+function filterInvalid([column, row]: Coordinate2D) {
+    return (
+        row < 0 ||
+        row > gameParams.rows - 1 ||
+        column < 0 ||
+        column > gameParams.cols - 1
+    );
 }
 
-function horAdj([row, column]){   
-    const left = [row, column - 1];
-    const right = [row, column + 1];
-    const adjacents = [left, right]
-    return adjacents
+function horAdj([x, y]: Coordinate2D) {
+    const left = [x - 1, y];
+    const right = [x + 1, y];
+    const adjacents = [left, right];
+    return adjacents as Array<Coordinate2D>;
 }
 
-function vertAdj([row, column]){   
-    const above = [row - 1, column];
-    const below = [row + 1, column];
-    const adjacents = [above, below]
-    return adjacents
+function vertAdj([x, y]: Coordinate2D) {
+    const above = [x, y - 1];
+    const below = [x, y + 1];
+    const adjacents = [above, below];
+    return adjacents as Array<Coordinate2D>;
 }
 
-function backDiaAdj([row, column]){   
-    const topleft = [row - 1, column - 1];
-    const bottomright = [row + 1, column + 1];
-    const adjacents = [topleft, bottomright]
-    return adjacents
+function backDiaAdj([x, y]: Coordinate2D) {
+    const topleft = [x - 1, y - 1];
+    const bottomright = [x + 1, y + 1];
+    const adjacents = [topleft, bottomright];
+    return adjacents as Array<Coordinate2D>;
 }
 
-function forDiaAdj([row, column]){  
-    const topright = [row - 1, column + 1];
-    const bottomleft = [row + 1, column - 1];
-    const adjacents = [topright, bottomleft]
-    return adjacents
+function forDiaAdj([x, y]: Coordinate2D) {
+    const topright = [x + 1, y - 1];
+    const bottomleft = [x - 1, y + 1];
+    const adjacents = [topright, bottomleft];
+    return adjacents as Array<Coordinate2D>;
 }
 
 const adjFuncMap = {
     "option-adjacency-hor": horAdj,
     "option-adjacency-vert": vertAdj,
     "option-adjacency-backdia": backDiaAdj,
-    "option-adjacency-fordia": forDiaAdj
-}
+    "option-adjacency-fordia": forDiaAdj,
+};
 
 const adjModeElementMap = {
-    "linear": adjacencyLinearBlock,
-    "non-linear": adjacencyNonLinearBlock
-}
+    linear: adjacencyLinearBlock,
+    "non-linear": adjacencyNonLinearBlock,
+};
 
-function computeActiveAdjFuncs(){
+function computeActiveAdjFuncs() {
     const activeAdjFuncs = [];
-    const adjFuncBools = adjModeElementMap[adjacencySelect.value].querySelectorAll('div')
+    const mode = adjacencySelect.value as keyof typeof adjModeElementMap;
+    const adjFuncBools = Array.from(
+        adjModeElementMap[mode].querySelectorAll("div")
+    );
 
-    for(const adjFuncBool of adjFuncBools){
-        if(adjFuncBool.querySelector('input').checked){
-            activeAdjFuncs.push( adjFuncMap[adjFuncBool.id] )
+    for (const adjFuncBool of adjFuncBools) {
+        const checkbox = adjFuncBool.querySelector("input") as HTMLInputElement;
+        if (checkbox.checked) {
+            const funcId = adjFuncBool.id as keyof typeof adjFuncMap;
+            activeAdjFuncs.push(adjFuncMap[funcId]);
         }
     }
     return activeAdjFuncs;
 }
 
-function checkUpdateRules(id, isAlive, count){
-    if(isAlive){
-        if(count <2 || count>3){
+function checkUpdateRules(
+    id: string,
+    isAlive: boolean,
+    count: number
+): CellUpdate {
+    if (isAlive) {
+        if (count < 2 || count > 3) {
             return {
-                'id': id,
-                'action': 'kill'
-            }
+                id,
+                action: "kill",
+            };
         }
     } else {
-        if(count == 3){
-            return  {
-                'id': id,
-                'action': 'resurrect'
-            }
+        if (count == 3) {
+            return {
+                id,
+                action: "revive",
+            };
         }
     }
+
+    return {
+        id,
+        action: "nothing",
+    };
 }
 
-function computeUpdates(coordinate, hoodRadius, cellUpdateMemo, depth = 0){
-    const id = `xy${coordinate[0]}_${coordinate[1]}`
-
+function computeUpdates(
+    coordinate: Coordinate2D,
+    cellUpdateMemo: Set<string>,
+    depth = 0
+): Array<CellUpdate> {
+    const id = coordToId(coordinate);
     const activeAdjFuncs = computeActiveAdjFuncs();
 
-    const compositeAdjacencyFunction = function(coordinate) {
-        const adjacents = [];
+    const compositeAdjacencyFunction = function (coord: Coordinate2D) {
+        const adjacents: Array<Coordinate2D> = [];
 
-        for(const adjFunc of activeAdjFuncs){
-            adjacents.push(adjFunc(coordinate))
+        for (const adjFunc of activeAdjFuncs) {
+            adjacents.push(...adjFunc(coord));
         }
-        return adjacents.flat()
-    }
+        return adjacents;
+    };
 
     const neighborhood = compositeAdjacencyFunction(coordinate);
+    let cellUpdates = [];
 
-    let cellUpdates = []
-
-    if(depth >= hoodRadius){
-        if(cellUpdateMemo[id]){
-            return []
-        } else {
-            cellUpdateMemo[id] = true;
+    if (depth >= gameParams.hoodRadius) {
+        if (cellUpdateMemo.has(id)) {
+            return [];
         }
 
+        cellUpdateMemo.add(id);
         let aliveCellsCounter = 0;
 
-        for(const neighbor of neighborhood){
-            const id = `xy${neighbor[0]}_${neighbor[1]}`
-            if(liveCells[id]){
-                aliveCellsCounter++
+        for (const neighbor of neighborhood) {
+            const id = coordToId(neighbor);
+            if (gameState.liveCells.has(id)) {
+                aliveCellsCounter++;
             }
         }
 
-        const isAlive = liveCells[id] ? true: false
+        const isAlive = gameState.liveCells.has(id);
         const update = checkUpdateRules(id, isAlive, aliveCellsCounter);
 
-        if(update){
-            return update
-        }
+        return [update];
     } else {
-        neighborhood.push(coordinate)
-        for(const cell of neighborhood){
+        neighborhood.push(coordinate);
+        for (const cell of neighborhood) {
             cellUpdates.push(
-                computeUpdates(cell, hoodRadius, cellUpdateMemo, depth+1)
-            )
+                ...computeUpdates(cell, cellUpdateMemo, depth + 1)
+            );
         }
     }
-    return cellUpdates.flat()
+
+    return cellUpdates;
 }
 
 gameGrid.addEventListener("click", (event) => {
-    if( event.target.matches('.game-grid > .grid-square') && !frozen ) {
-        event.target.classList.toggle('live-cell');
-        liveCells[event.target.id] = {
-            'id': event.target.id
+    const target = event.target as HTMLElement;
+    if (target.matches("#game-grid > .grid-square") && !gameState.frozen) {
+        target.classList.toggle("live-cell");
+
+        if (gameState.liveCells.has(target.id)) {
+            gameState.liveCells.delete(target.id);
+        } else {
+            gameState.liveCells.add(target.id);
         }
     }
-})
-
+});
 
 ///////////////////
 //// Game Loop ////
 ///////////////////
 
-let done = false
-
-function gameLoop(){
-    if(!done){
+function gameLoop() {
+    if (!gameState.done) {
         updateGameState();
-        setTimeout( () => {
-            window.requestAnimationFrame(gameLoop)
-        }, delay);
+        setTimeout(() => {
+            window.requestAnimationFrame(gameLoop);
+        }, gameParams.delay);
     }
 }
 
-function updateGameState(){
-    const cellUpdateMemo = {}
-    let cellUpdates = []
+const cellUpdateActions = ["kill", "revive", "nothing"] as const;
 
-    for(const liveCell in liveCells ){
-        const coordinate = liveCell.replace('xy', '').split('_').map( (elem) => Number(elem) )
-        cellUpdates.push(
-            computeUpdates(coordinate, optionsHoodRadius.value, cellUpdateMemo)
-        )
+type CellUpdate = {
+    id: string;
+    action: typeof cellUpdateActions[number];
+};
 
+function updateGameState() {
+    const cellUpdateMemo = new Set() as Set<string>;
+    let cellUpdates: Array<CellUpdate> = [];
+
+    for (const liveCell of gameState.liveCells) {
+        const coordinate = idToCoord<Coordinate2D>(liveCell);
+        cellUpdates.push(...computeUpdates(coordinate, cellUpdateMemo));
     }
 
-    cellUpdates = cellUpdates.flat()
+    for (const cellUpdate of cellUpdates) {
+        const id = cellUpdate.id;
+        const coordinate = idToCoord<Coordinate2D>(id);
 
-    for(const cellUpdate of cellUpdates){
-        const id = cellUpdate.id
-        const coordinate = id.replace('xy', '').split('_').map( (elem) => Number(elem) )
-
-        switch(cellUpdate.action){
-            
-            case 'resurrect':
-                liveCells[id] = {
-                    'id': id,
-                };
-                if(!filterInvalid(coordinate)){
-                    const deadCell = document.querySelector(`#${id}`)
-                    styleSquare(deadCell, 'live-cell')
+        switch (cellUpdate.action) {
+            case "revive":
+                gameState.liveCells.add(id);
+                if (!filterInvalid(coordinate)) {
+                    const deadCell = querySelector(`#${id}`);
+                    toggleClass(deadCell, "live-cell");
                 }
-                break
-            case 'kill':
-                delete liveCells[id]
-                if(!filterInvalid(coordinate)){
-                    const liveCell = document.querySelector(`#${id}`)
-                    styleSquare(liveCell, 'live-cell')
+                break;
+            case "kill":
+                gameState.liveCells.delete(id);
+                if (!filterInvalid(coordinate)) {
+                    const liveCell = querySelector(`#${id}`);
+                    toggleClass(liveCell, "live-cell");
                 }
-                break
+                break;
+            case "nothing":
+                break;
         }
     }
 }
 
-const startButton = document.querySelector('#button-start');
+const startButton = querySelector("#button-start");
 
-startButton.addEventListener('click', () => {
-    done = false;
-    frozen = true;
-    gameLoop();
-})
+startButton.addEventListener("click", () => {
+    if (!gameState.frozen) {
+        gameState.done = false;
+        gameState.frozen = true;
+        gameLoop();
+    }
+});
 
-const resetButton = document.querySelector('#button-reset');
+const resetButton = querySelector("#button-reset");
 
-resetButton.addEventListener('click', () => {
-    done = true;
-    frozen = false;
+resetButton.addEventListener("click", () => {
+    gameState.liveCells = new Set();
+    gameState.done = true;
+    gameState.frozen = false;
+
     removeChildren(gameGrid);
     generateGridCells();
-    
-    // create default live cells
-    defaultState.forEach( (id) => {
-        liveCells[id] = {
-            'id': id
-        }
-        const square = document.querySelector(`#${id}`);
-        styleSquare(square, 'live-cell')
-    })
 
     messages.innerHTML = "<h4>How does it feel to be God?</h4>";
-})
-
-function removeChildren(element) {
-    while (element.lastElementChild) {
-        element.removeChild(element.lastElementChild);
-    }
-}
+});
